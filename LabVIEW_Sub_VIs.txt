@@ -1,0 +1,270 @@
+# LabVIEW Sub VI Specifications
+
+## 1. Calculate_XByte_Sequence.vi
+
+### Front Panel
+**Controls:**
+- Position (I32) - Input: Position in steps
+
+**Indicators:**
+- XByte2 (U8) - Output: Most significant byte
+- XByte1 (U8) - Output: Middle byte  
+- XByte0 (U8) - Output: Least significant byte
+
+### Block Diagram
+```
+Position → Format Value (Hexadecimal String, 6 digits with padding) → 
+String Subset [0:2] → Hex to Number → U8 → XByte2
+String Subset [2:4] → Hex to Number → U8 → XByte1
+String Subset [4:6] → Hex to Number → U8 → XByte0
+```
+
+## 2. Send_Command_With_ACK.vi
+
+### Front Panel
+**Controls:**
+- VISA Resource Name (VISA Session)
+- Command (U8) - Command byte to send
+- Expected ACK (U8) - Expected acknowledgment
+- Timeout (ms) - Default: 1000
+
+**Indicators:**
+- Success (Boolean) - True if ACK received correctly
+- Actual Response (U8) - Actual response received
+- Error Out (Error Cluster)
+
+### Block Diagram
+```
+VISA Write (Command) → Wait (100ms) → VISA Read → 
+Compare (Actual Response == Expected ACK) → Success Boolean
+Error Handler → Error Out
+```
+
+## 3. Check_Controller_Status.vi
+
+### Front Panel
+**Controls:**
+- VISA Resource Name (VISA Session)
+
+**Indicators:**
+- Status String (String) - Human-readable status
+- Limit Switch (String) - Limit switch status
+- Movement Complete (Boolean) - True if movement finished
+- Error Out (Error Cluster)
+
+### Block Diagram
+```
+VISA Read → Case Structure:
+├── 40 → Status String = "Home limit reached", Limit Switch = "Home"
+├── 41 → Status String = "Far limit reached", Limit Switch = "Far"  
+├── 170 → Status String = "Movement completed", Movement Complete = True
+├── 10 → Status String = "Ready"
+└── Default → Status String = "Unknown status"
+```
+
+## 4. Handle_Serial_Errors.vi
+
+### Front Panel
+**Controls:**
+- Error In (Error Cluster)
+- VISA Resource Name (VISA Session)
+
+**Indicators:**
+- Error Message (String) - Formatted error description
+- Error Out (Error Cluster)
+- Recoverable (Boolean) - True if error can be recovered
+
+### Block Diagram
+```
+Error In → Case Structure:
+├── No Error → Error Out = No Error, Recoverable = True
+└── Error → 
+    ├── Format Error Message
+    ├── Check Error Code
+    │   ├── VISA Timeout → Recoverable = True
+    │   ├── VISA Write Failed → Recoverable = False
+    │   └── Other → Recoverable = False
+    └── Error Out
+```
+
+## 5. Initialize_Controller.vi
+
+### Front Panel
+**Controls:**
+- COM Port (String) - Serial port name
+- Timeout (ms) - Default: 2000
+
+**Indicators:**
+- VISA Session Out (VISA Session)
+- Controller Ready (Boolean)
+- Error Out (Error Cluster)
+
+### Block Diagram
+```
+COM Port → VISA Configure Serial Port (19200, 8, None, 1) →
+VISA Write ([100]) → Wait (100ms) → VISA Read →
+Compare to [200] → Controller Ready Boolean
+Error Handler → Error Out
+```
+
+## 6. Execute_Movement.vi
+
+### Front Panel
+**Controls:**
+- VISA Resource Name (VISA Session)
+- Position (I32)
+- Direction (U8) - 125=Positive, 175=Negative
+- Acceleration (U8) - Default: 0
+- Deceleration (U8) - Default: 0
+
+**Indicators:**
+- Movement Complete (Boolean)
+- Final Position (I32)
+- Status String (String)
+- Error Out (Error Cluster)
+
+### Block Diagram
+```
+Send_Command_With_ACK ([19], [10]) →
+Calculate_XByte_Sequence → 
+Send XByte2, XByte1, XByte0 sequentially →
+Send_Command_With_ACK (Direction, [10]) →
+Send_Command_With_ACK (Acceleration, [10]) →
+Send_Command_With_ACK (Deceleration, [10]) →
+Check_Controller_Status →
+Send_Command_With_ACK ([163], [10]) →
+Send_Command_With_ACK ([10], [10]) × 3 →
+Movement Complete = True
+```
+
+## 7. Set_Speed.vi
+
+### Front Panel
+**Controls:**
+- VISA Resource Name (VISA Session)
+- Speed (I16) - Range: 5-4000
+
+**Indicators:**
+- Speed Set (Boolean)
+- Actual Speed (I16)
+- Error Out (Error Cluster)
+
+### Block Diagram
+```
+Speed Range Check (5 ≤ Speed ≤ 4000) → Case Structure:
+├── Valid Range →
+│   Send_Command_With_ACK ([34], [10]) →
+│   Format Speed (Hexadecimal, 4 digits) →
+│   String Subset → Hex to Number →
+│   Send MSB, LSB sequentially →
+│   Send [0] × 6 → Speed Set = True
+└── Invalid Range → Speed Set = False, Error Out
+```
+
+## 8. Stop_Movement.vi
+
+### Front Panel
+**Controls:**
+- VISA Resource Name (VISA Session)
+
+**Indicators:**
+- Stop Sent (Boolean)
+- Error Out (Error Cluster)
+
+### Block Diagram
+```
+VISA Write ([104]) → Wait (100ms) → VISA Read →
+Stop Sent = True
+Error Handler → Error Out
+```
+
+## 9. Home_Stage.vi
+
+### Front Panel
+**Controls:**
+- VISA Resource Name (VISA Session)
+- Home Speed (I16) - Default: 100
+
+**Indicators:**
+- Homing Complete (Boolean)
+- Home Found (Boolean)
+- Error Out (Error Cluster)
+
+### Block Diagram
+```
+Set_Speed (Home Speed) →
+Execute_Movement (Large Position, Negative Direction) →
+Monitor Status until Home Limit (40) reached →
+Stop_Movement →
+Homing Complete = True, Home Found = True
+```
+
+## 10. Get_Position.vi
+
+### Front Panel
+**Controls:**
+- VISA Resource Name (VISA Session)
+
+**Indicators:**
+- Current Position (I32)
+- Position Valid (Boolean)
+- Error Out (Error Cluster)
+
+### Block Diagram
+```
+Send_Command_With_ACK ([50], [10]) →  # Assuming command 50 gets position
+VISA Read (3 bytes) → Reconstruct Position →
+Current Position = Reconstructed Value
+Position Valid = True
+```
+
+## Connection Diagram for Main VI
+
+```
+Main VI Block Diagram:
+┌─────────────────────────────────────────────────────────────┐
+│                    EVENT STRUCTURE                          │
+│ ┌─────────────────┐ ┌─────────────────┐ ┌─────────────────┐ │
+│ │ Connect Button  │ │ Move Button     │ │ Set Speed Button │ │
+│ │                 │ │                 │ │                 │ │
+│ │ Initialize_     │ │ Execute_Movement│ │ Set_Speed       │ │
+│ │ Controller.vi   │ │ .vi             │ │ .vi             │ │
+│ └─────────────────┘ └─────────────────┘ └─────────────────┘ │
+│                                                             │
+│ ┌─────────────────┐ ┌─────────────────┐ ┌─────────────────┐ │
+│ │ Disconnect Btn  │ │ Stop Button     │ │ Home Button     │ │
+│ │                 │ │                 │ │                 │ │
+│ │ VISA Close      │ │ Stop_Movement   │ │ Home_Stage.vi   │ │
+│ │                 │ │ .vi             │ │                 │ │
+│ └─────────────────┘ └─────────────────┘ └─────────────────┘ │
+│                                                             │
+│ ┌─────────────────────────────────────────────────────────┐ │
+│ │               WHILE LOOP (Main Program)                │ │
+│ │ ┌─────────────────────────────────────────────────────┐ │ │
+│ │ │            STATUS MONITORING LOOP                   │ │ │
+│ │ │ Check_Controller_Status.vi → Update Front Panel    │ │ │
+│ │ │ Get_Position.vi → Update Position Display          │ │ │
+│ │ │ Wait (100ms) → Repeat                             │ │ │
+│ │ └─────────────────────────────────────────────────────┘ │ │
+│ └─────────────────────────────────────────────────────────┘ │
+└─────────────────────────────────────────────────────────────┘
+```
+
+## Error Handling Strategy
+
+### Error Propagation
+- All Sub VIs include error clusters
+- Errors propagate through the entire call chain
+- Main VI displays errors on front panel
+
+### Recovery Procedures
+1. **Communication Timeout**: Retry command up to 3 times
+2. **Invalid Response**: Re-initialize controller
+3. **Limit Switch Hit**: Stop movement, notify user
+4. **Speed Out of Range**: Display error, don't execute
+
+### Logging
+- Log all commands sent to controller
+- Log all responses received
+- Log all errors with timestamps
+- Save to file for debugging

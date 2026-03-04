@@ -1,0 +1,101 @@
+# LabVIEW VI Description File for Micromotion Controller
+# This file describes the structure and functionality of the LabVIEW module
+
+VI_NAME: "Micromotion_Controller_LabVIEW"
+VI_TYPE: "Main VI"
+DESCRIPTION: "LabVIEW module for controlling 1-axis linear stage via micromotion controller"
+
+# FRONT PANEL CONTROLS
+CONTROLS:
+- COM Port: String input (default: "COM8")
+- Connect Button: Boolean button
+- Disconnect Button: Boolean button
+- Position (steps): Numeric input (I32)
+- Direction: Enum {Positive=125, Negative=175}
+- Acceleration: Numeric input (U8, default: 0)
+- Deceleration: Numeric input (U8, default: 0)
+- Speed: Numeric input (I16, range: 5-4000)
+- Move Button: Boolean button
+- Set Speed Button: Boolean button
+- Stop Button: Boolean button
+- Home Button: Boolean button
+
+# FRONT PANEL INDICATORS
+INDICATORS:
+- Connection Status: Boolean LED
+- Current Position: Numeric indicator (I32)
+- Movement Status: String indicator
+- Error Status: String indicator
+- Controller Ready: Boolean LED
+- Limit Switch Status: String indicator
+
+# BLOCK DIAGRAM STRUCTURE
+BLOCK_DIAGRAM:
+1. SERIAL CONFIGURATION:
+   - VISA Configure Serial Port
+   - Baud Rate: 19200
+   - Data Bits: 8
+   - Parity: None
+   - Stop Bits: 1
+   - Flow Control: None
+
+2. CONTROLLER INITIALIZATION:
+   - Send byte [100] to controller
+   - Wait 100ms
+   - Read response
+   - Verify acknowledgment (expect 200)
+
+3. MOVEMENT CONTROL:
+   - Send byte [19] to initialize movement
+   - Convert position to 3-byte sequence
+   - Send XByte2, XByte1, XByte0 sequentially
+   - Send direction byte
+   - Send acceleration byte
+   - Send deceleration byte
+   - Check for completion acknowledgment (10)
+   - Monitor status bytes (40=home limit, 41=far limit)
+   - Send byte [163] to complete movement
+   - Send three bytes [10] for finalization
+
+4. SPEED CONTROL:
+   - Send byte [34] to set speed
+   - Convert speed to 2-byte hexadecimal
+   - Send MSB and LSB
+   - Send six bytes [0] for finalization
+
+5. ERROR HANDLING:
+   - VISA Error Handling
+   - Timeout Management
+   - Communication Error Detection
+   - Limit Switch Detection
+
+# SUB VIS
+SUB_VIS:
+- "Calculate_XByte_Sequence.vi": Converts position to 3-byte format
+- "Send_Command_With_ACK.vi": Sends command and waits for acknowledgment
+- "Check_Controller_Status.vi": Monitors controller status
+- "Handle_Serial_Errors.vi": Error handling routine
+
+# PROTOCOL IMPLEMENTATION
+PROTOCOL_COMMANDS:
+- Initialize: [100] -> Expect [200]
+- Move Initiate: [19] -> Expect [10]
+- Position Bytes: [XByte2][XByte1][XByte0]
+- Direction: [125]=Positive, [175]=Negative
+- Speed Set: [34] -> Expect [10]
+- Movement Complete: [163]
+- Finalize: [10][10][10]
+- Stop: [104]
+
+# TIMING REQUIREMENTS
+TIMING:
+- Wait time between commands: 100ms
+- Serial timeout: 1000ms
+- Movement timeout: User configurable
+
+# DATA FORMATS
+DATA_CONVERSIONS:
+- Position: Decimal -> 6-digit hex -> 3 bytes
+- Speed: Decimal -> 4-digit hex -> 2 bytes
+- Direction: Enum -> Single byte
+- Status: Byte -> String interpretation
